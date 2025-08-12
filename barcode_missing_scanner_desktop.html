@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>סריקת חוסרים לפי ברקוד</title>
+<style>
+  :root{
+    --bg:#0b0f14; --card:#131a22; --fg:#e5e7eb; --muted:#9aa4b2; --accent:#93c5fd;
+    --border:#233143; --ok:#86efac; --warn:#facc15; --bad:#fda4af; --chip:#1b2330;
+  }
+  html,body{height:100%; margin:0; background:var(--bg); color:var(--fg); font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;}
+  .wrap{max-width:1200px; margin:0 auto; padding:16px;}
+  header{display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom:12px;}
+  h1{font-size:20px; margin:0;}
+  .badge{font-size:12px; background:var(--warn); color:#111; padding:2px 8px; border-radius:999px;}
+  .row{display:flex; gap:12px; flex-wrap:wrap;}
+  .col{flex:1 1 320px; min-width:300px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px;}
+  h2{font-size:16px; margin:0 0 8px; color:var(--muted);}
+  label{font-size:12px; color:var(--muted); display:block; margin:6px 0 4px;}
+  input,textarea,select,button{border-radius:10px; border:1px solid var(--border); background:#0a0f14; color:var(--fg); padding:10px; font-size:15px; outline:none;}
+  textarea{width:100%; min-height:120px; resize:vertical;}
+  select{width:100%;}
+  .actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;}
+  button{cursor:pointer;}
+  button:hover{background:#0f1520;}
+  .accent{background:#0d1420; border-color:#27455b;}
+  .danger{background:#1b1112; border-color:#4a2628; color:#fecaca;}
+  .ok{color:#052e16; background:#102214; border-color:#264a34;}
+  .list{max-height:360px; overflow:auto; border:1px dashed var(--border); border-radius:10px; padding:8px;}
+  .kv{display:flex; justify-content:space-between; gap:12px; padding:6px 0; border-bottom:1px dashed var(--border);}
+  .kv:last-child{border-bottom:0;}
+  .pill{display:inline-block; padding:2px 8px; border-radius:999px; background:var(--chip); border:1px solid var(--border); font-size:12px; margin:2px;}
+  .small{font-size:12px; color:var(--muted);}
+  .num{font-variant-numeric: tabular-nums;}
+  .scanbox{display:flex; gap:8px;}
+  .scanbox input{flex:1;}
+  .green{color:var(--ok);}
+  .red{color:var(--bad);}
+  .divider{height:1px; background:var(--border); margin:10px -12px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>סריקת חוסרים לפי ברקוד</h1>
+    <span class="badge">מצב: כל הפריטים חסרים עד סריקה</span>
+  </header>
+
+  <div class="row">
+    <div class="col">
+      <h2>טעינת ברקודים (JSON)</h2>
+      <label>הדבק כאן JSON של ברקודים → { "BARCODE": {"sku":"10742","color":"שחור","size":"m"}, ... }</label>
+      <textarea id="jsonArea" placeholder='דוגמאות נתמכות:
+{
+  "7290000000001": {"sku":"10742","color":"שחור","size":"m"},
+  "7290000000002": {"sku":"10742","color":"שחור","size":"l"}
+}
+או מערך:
+[
+  {"barcode":"7290000000001","sku":"10742","color":"שחור","size":"m"},
+  {"barcode":"7290000000002","sku":"10742","color":"שחור","size":"l"}
+]'></textarea>
+      <div class="actions">
+        <button id="importJson" class="accent">ייבא ברקודים</button>
+        <button id="exportJson">יצוא ברקודים</button>
+        <button id="clearAll" class="danger">איפוס מלא</button>
+      </div>
+      <div class="small">נשמר אוטומטית בדפדפן (localStorage). מומלץ לייצא לגיבוי.</div>
+
+      <div class="divider"></div>
+
+      <h2>סריקה</h2>
+      <label>סרוק/הקלד ברקוד ואז Enter</label>
+      <div class="scanbox">
+        <input id="scanInput" placeholder="סרוק כאן..." autocomplete="off" inputmode="numeric" />
+        <button id="markUnknown" title="סמן ברקוד שלא נמצא">? לא נמצא</button>
+      </div>
+      <div class="small" id="lastScanNote">מוכן לסריקה.</div>
+      <div class="actions">
+        <button id="undo" class="">בטל סריקה אחרונה</button>
+        <button id="clearScans" class="danger">נקה כל הסריקות (הכול חוזר לחסר)</button>
+      </div>
+    </div>
+
+    <div class="col">
+      <h2>חוסרים — לפי דגם שנבחר</h2>
+      <label>בחר דגם (SKU)</label>
+      <select id="skuSelect"></select>
+      <div id="missingSku" class="list"></div>
+      <div class="actions">
+        <button id="exportMissingSku" class="accent">יצוא חוסרי דגם</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <h2>חוסרים סה״כ</h2>
+      <div id="missingAll" class="list" style="max-height:220px"></div>
+      <div class="actions">
+        <button id="exportMissingAll" class="accent">יצוא חוסרים (CSV)</button>
+      </div>
+    </div>
+
+    <div class="col">
+      <h2>סטטוס</h2>
+      <div class="kv"><div>ברקודים בקטלוג</div><div class="num" id="statBarcodes">0</div></div>
+      <div class="kv"><div>דגמים (SKU)</div><div class="num" id="statSkus">0</div></div>
+      <div class="kv"><div>צבעים ייחודיים</div><div class="num" id="statColors">0</div></div>
+      <div class="kv"><div>שילובי (דגם,צבע,מידה)</div><div class="num" id="statCombos">0</div></div>
+      <div class="kv"><div>נסרקו (נמצאים)</div><div class="num green" id="statPresent">0</div></div>
+      <div class="kv"><div>חסרים</div><div class="num red" id="statMissing">0</div></div>
+
+      <div class="divider"></div>
+
+      <h2>תבנית בדיקה מהירה</h2>
+      <div class="small">ניתן לייצא דוח TXT/CSV ולשלוח למחסן להשלמות.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.from(document.querySelectorAll(s));
+
+  // ---- Persistent state ----
+  let barcodes = load('barcodes') || {}; // {barcode: {sku,color,size}}
+  let scans = load('scans') || {};       // { sku: { color: Set(sizes) } } -> PRESENT sizes
+  let history = [];                      // last scanned for undo
+
+  // Derived catalog: sizes per (sku,color) based on barcodes
+  function deriveCatalog(){
+    const cat = {}; // { sku: { colors: Set, sizes: Set, mapColorSizes: {color:Set(sizes)} } }
+    for(const [code, meta] of Object.entries(barcodes)){
+      if(!meta || !meta.sku || !meta.color || !meta.size) continue;
+      const sku = String(meta.sku);
+      const color = String(meta.color);
+      const size = String(meta.size).toLowerCase();
+      if(!cat[sku]) cat[sku] = {colors:new Set(), sizes:new Set(), mapColorSizes:{}};
+      cat[sku].colors.add(color);
+      cat[sku].sizes.add(size);
+      if(!cat[sku].mapColorSizes[color]) cat[sku].mapColorSizes[color] = new Set();
+      cat[sku].mapColorSizes[color].add(size);
+    }
+    return cat;
+  }
+
+  let catalog = deriveCatalog();
+
+  // ---- Helpers ----
+  function save(key, val){ localStorage.setItem(key, JSON.stringify(val)); }
+  function load(key){ const s = localStorage.getItem(key); return s ? JSON.parse(s) : null; }
+  function setPresent(sku, color, size, present=true){
+    scans[sku] = scans[sku] || {};
+    scans[sku][color] = scans[sku][color] || [];
+    const set = new Set(scans[sku][color]);
+    if(present) set.add(size); else set.delete(size);
+    scans[sku][color] = Array.from(set);
+    save('scans', scans);
+  }
+  function getPresentSet(sku,color){
+    if(!scans[sku] || !scans[sku][color]) return new Set();
+    return new Set(scans[sku][color]);
+  }
+  function combosCount(){
+    let n = 0;
+    for(const sku of Object.keys(catalog)){
+      const map = catalog[sku].mapColorSizes;
+      for(const color of Object.keys(map)){
+        n += map[color].size;
+      }
+    }
+    return n;
+  }
+  function presentCount(){
+    let n = 0;
+    for(const sku of Object.keys(scans)){
+      for(const color of Object.keys(scans[sku])){
+        n += new Set(scans[sku][color]).size;
+      }
+    }
+    return n;
+  }
+  function missingCount(){
+    return combosCount() - presentCount();
+  }
+  function updateStats(){
+    $('#statBarcodes').textContent = Object.keys(barcodes).length;
+    $('#statSkus').textContent = Object.keys(catalog).length;
+    const colorSet = new Set();
+    Object.values(catalog).forEach(c=> c.colors.forEach(x=>colorSet.add(x)));
+    $('#statColors').textContent = colorSet.size;
+    $('#statCombos').textContent = combosCount();
+    $('#statPresent').textContent = presentCount();
+    $('#statMissing').textContent = missingCount();
+  }
+  function download(filename, text){
+    const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 0);
+  }
+
+  // ---- Renderers ----
+  const skuSelect = $('#skuSelect');
+  const missingSku = $('#missingSku');
+  const missingAll = $('#missingAll');
+  function renderSkuSelect(){
+    const skus = Object.keys(catalog).sort();
+    skuSelect.innerHTML = skus.map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+  }
+  function renderMissingForSku(){
+    const sku = skuSelect.value;
+    missingSku.innerHTML = '';
+    if(!sku || !catalog[sku]) return;
+    const map = catalog[sku].mapColorSizes;
+    const frag = document.createDocumentFragment();
+    Object.keys(map).sort().forEach(color => {
+      const present = getPresentSet(sku,color);
+      const missing = Array.from(map[color]).filter(sz=>!present.has(sz));
+      const row = document.createElement('div');
+      row.className = 'kv';
+      row.innerHTML = `<div><b>${escapeHtml(color)}</b></div>
+        <div>${missing.length ? missing.map(s=>`<span class="pill">${s.toUpperCase()}</span>`).join(' ') : '<span class="small">אין חוסרים</span>'}</div>`;
+      frag.appendChild(row);
+    });
+    missingSku.appendChild(frag);
+  }
+  function renderMissingAll(){
+    missingAll.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    Object.keys(catalog).sort().forEach(sku => {
+      const map = catalog[sku].mapColorSizes;
+      Object.keys(map).sort().forEach(color => {
+        const present = getPresentSet(sku,color);
+        const missing = Array.from(map[color]).filter(sz=>!present.has(sz));
+        const row = document.createElement('div');
+        row.className = 'kv';
+        row.innerHTML = `<div><b>${escapeHtml(sku)}</b> · ${escapeHtml(color)}</div>
+          <div>${missing.length ? missing.map(s=>`<span class="pill">${s.toUpperCase()}</span>`).join(' ') : '<span class="small">אין</span>'}</div>`;
+        frag.appendChild(row);
+      });
+    });
+    missingAll.appendChild(frag);
+  }
+  function renderAll(){
+    renderSkuSelect();
+    if(!skuSelect.value && skuSelect.options.length) skuSelect.value = skuSelect.options[0].value;
+    renderMissingForSku();
+    renderMissingAll();
+    updateStats();
+  }
+
+  // ---- Events ----
+  $('#importJson').addEventListener('click', () => {
+    try{
+      const raw = $('#jsonArea').value.trim();
+      if(!raw){ alert('נא להדביק JSON'); return; }
+      let data = JSON.parse(raw);
+      const map = {};
+      if(Array.isArray(data)){
+        for(const row of data){
+          if(!row) continue;
+          const bc = String(row.barcode ?? '').trim();
+          const sku = row.sku, color = row.color, size = row.size;
+          if(!bc || !sku || !color || !size) continue;
+          map[bc] = {sku:String(sku), color:String(color), size:String(size).toLowerCase()};
+        }
+      }else{
+        for(const [bc, meta] of Object.entries(data)){
+          if(!meta) continue;
+          const sku = meta.sku, color = meta.color, size = meta.size;
+          if(!bc || !sku || !color || !size) continue;
+          map[String(bc)] = {sku:String(sku), color:String(color), size:String(size).toLowerCase()};
+        }
+      }
+      if(Object.keys(map).length === 0) throw new Error('לא נמצאו פריטים ב־JSON');
+      barcodes = map;
+      save('barcodes', barcodes);
+      catalog = deriveCatalog();
+      // נקה סריקות כי ייתכן שהקטלוג השתנה
+      scans = {};
+      save('scans', scans);
+      history = [];
+      renderAll();
+      alert('הברקודים נטענו בהצלחה');
+    }catch(e){
+      alert('שגיאה בייבוא JSON: ' + e.message);
+    }
+  });
+
+  $('#exportJson').addEventListener('click', () => {
+    download('barcodes.json', JSON.stringify(barcodes, null, 2));
+  });
+
+  $('#clearAll').addEventListener('click', () => {
+    if(confirm('לאפס הכול? (ברקודים + סריקות)')){
+      localStorage.clear();
+      barcodes = {}; scans = {}; history = [];
+      catalog = deriveCatalog();
+      renderAll();
+    }
+  });
+
+  skuSelect.addEventListener('change', () => {
+    renderMissingForSku();
+  });
+
+  $('#clearScans').addEventListener('click', () => {
+    if(confirm('להחזיר הכול לחוסר?')){
+      scans = {}; history = [];
+      save('scans', scans);
+      renderAll();
+    }
+  });
+
+  $('#undo').addEventListener('click', () => {
+    const last = history.pop();
+    if(!last){ $('#lastScanNote').textContent = 'אין מה לבטל.'; return; }
+    // undo means mark that size as missing again
+    setPresent(last.sku, last.color, last.size, false);
+    $('#lastScanNote').textContent = `בוטל: ${last.barcode} → ${last.sku} / ${last.color} / ${last.size.toUpperCase()}`;
+    renderAll();
+  });
+
+  const scanInput = $('#scanInput');
+  scanInput.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter'){
+      const code = scanInput.value.trim();
+      if(!code) return;
+      handleScan(code);
+      scanInput.value = '';
+    }
+  });
+
+  $('#markUnknown').addEventListener('click', () => {
+    const code = scanInput.value.trim();
+    if(!code) { alert('אין ברקוד בשדה.'); return; }
+    $('#lastScanNote').textContent = `ברקוד לא נמצא בקטלוג: ${code}`;
+    scanInput.value = '';
+  });
+
+  function handleScan(code){
+    const meta = barcodes[code];
+    if(!meta){
+      $('#lastScanNote').textContent = `ברקוד לא נמצא בקטלוג: ${code}`;
+      flashInput(false);
+      return;
+    }
+    const sku = String(meta.sku);
+    const color = String(meta.color);
+    const size = String(meta.size).toLowerCase();
+    setPresent(sku, color, size, true); // מסמן *רק* המידה הזו כקיימת
+    history.push({barcode:code, sku, color, size});
+    $('#lastScanNote').textContent = `נסרק ✓ ${code} → ${sku} / ${color} / ${size.toUpperCase()}`;
+    flashInput(true);
+    // עדכון תצוגות
+    if(!skuSelect.value) skuSelect.value = sku;
+    renderAll();
+  }
+
+  function flashInput(ok){
+    scanInput.style.borderColor = ok ? '#265c3a' : '#6b2c2c';
+    setTimeout(()=> scanInput.style.borderColor = '', 250);
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
+  }
+
+  // ---- Boot ----
+  // preload tiny example if empty
+  if(Object.keys(barcodes).length === 0){
+    barcodes = {
+      "1001":{"sku":"10742","color":"שחור","size":"m"},
+      "1002":{"sku":"10742","color":"שחור","size":"l"},
+      "1003":{"sku":"10742","color":"לבן","size":"m"},
+      "1004":{"sku":"10742","color":"ירוק","size":"xl"}
+    };
+    save('barcodes', barcodes);
+  }
+  catalog = deriveCatalog();
+  renderAll();
+  $('#lastScanNote').textContent = 'מוכן לסריקה. הדבק/סרוק ברקוד ולחץ Enter.';
+})();
+</script>
+</body>
+</html>
