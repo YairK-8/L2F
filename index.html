@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
@@ -85,6 +86,22 @@
     font-size:18px; font-weight:700; }
   #scanModal.success{ background:#065f46; } #scanModal.error{ background:#7f1d1d; }
 </style>
+
+<!-- Firebase config (you can edit STORE_ID if you have multiple branches) -->
+<script>
+  const FIREBASE_ENABLED = true;
+  const FIREBASE_STORE_ID = "main-store";
+  const firebaseConfig = {
+    apiKey: "AIzaSyC7YtBFCZRicxs3JgR96QQAVpwRTxXjSzY",
+    authDomain: "l2f-store.firebaseapp.com",
+    projectId: "l2f-store",
+    storageBucket: "l2f-store.appspot.com",
+    messagingSenderId: "973158924873",
+    appId: "1:973158924873:web:96babadc303173367f7598",
+    measurementId: "G-18RHDVSE1J"
+  };
+</script>
+
 </head>
 <body>
 <div class="wrap">
@@ -422,15 +439,14 @@
   let missing1 = LS.get(KEYS.missing1, {});
   let whShort1 = LS.get(KEYS.whShort1, {});
 
-  function ensureMissingSkuLoaded1(sku){
-    if(missing1[sku]) return;
-    const entry = catalog[sku]; if(!entry) return;
-    missing1[sku] = {};
-    for(const [color,setSizes] of Object.entries(entry.mapColorSizes)){
-      missing1[sku][color] = Array.from(setSizes).sort();
-    }
+  function ensureMissingPairLoaded1(sku, color){
+  if(!catalog[sku] || !catalog[sku].mapColorSizes[color]) return;
+  if(!missing1[sku]) missing1[sku] = {};
+  if(!missing1[sku][color]){
+    missing1[sku][color] = Array.from(catalog[sku].mapColorSizes[color]).sort();
     LS.set(KEYS.missing1, missing1);
   }
+}
   function removeFromMissing1(sku,color,size){
     if(!missing1[sku] || !missing1[sku][color]) return;
     const arr = new Set(missing1[sku][color]); arr.delete(size);
@@ -566,7 +582,7 @@
     const meta = barcodes[code];
     if(!meta){ $('#lastScanNote1').textContent = `ברקוד לא נמצא בקטלוג: ${code}`; toast('לא נמצא בקטלוג'); soundFail(); popup('סריקה נכשלה','error',1200); return; }
     const sku=String(meta.sku), color=String(meta.color), size=String(meta.size).toLowerCase();
-    ensureMissingSkuLoaded1(sku);
+    ensureMissingPairLoaded1(sku, color);
     removeFromMissing1(sku,color,size);
     scans1[sku]=scans1[sku]||{}; scans1[sku][color]=scans1[sku][color]||[]; if(!scans1[sku][color].includes(size)) scans1[sku][color].push(size); LS.set(KEYS.scans1,scans1);
     $('#lastScanNote1').textContent = `נסרק ✓ ${code} → ${sku} / ${color} / ${size.toUpperCase()}`; soundSuccess(); popup('נסרק ✓','success',900);
@@ -892,6 +908,30 @@
       if(!/^[0-9]$/.test(e.key)) e.preventDefault();
     });
   }
+
+  
+  // Cloud re-sync: rehydrate local variables and rerender when remote changes arrive
+  window.addEventListener('cloud-updated', ()=>{
+    try{
+      barcodes = LS.get(KEYS.barcodes, {});
+      catalog  = deriveCatalog(barcodes);
+
+      // TAB 1
+      scans1   = LS.get(KEYS.scans1, {});
+      missing1 = LS.get(KEYS.missing1, {});
+      whShort1 = LS.get(KEYS.whShort1, {});
+
+      // TAB 2
+      scans2   = LS.get(KEYS.scans2, {});
+      missing2 = LS.get(KEYS.missing2, {});
+      whShort2 = LS.get(KEYS.whShort2, {});
+      order2   = LS.get(KEYS.order2, []);
+
+      // LOCATIONS
+      // locLoad() already reads from LS.get when called; just rerender table
+      renderAll1(); renderAll2(); renderLocTable();
+    }catch(e){ console.error('cloud-updated handler error', e); }
+  });
 
   // Initial renders
   function updateStats2(){ $('#statBarcodes2').textContent = Object.keys(barcodes).length; const skusSet = new Set(Object.values(barcodes).map(v=>String(v.sku))); $('#statSkus2').textContent = skusSet.size; }
